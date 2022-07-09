@@ -43,6 +43,34 @@ async function getBorrowers(address, startBlock, count, snapshot) {
         })
     }
 
+    async function checkAccount(address) {
+        const balance = await contract.methods.balanceOf(address).call();
+        const balanceAdjusted = parseInt(balance) / 10 ** dec;
+        const exists = (!!(snapshot && snapshot.tokenHolders && snapshot.tokenHolders[symbol]
+            && snapshot.tokenHolders[symbol].addresses && snapshot.tokenHolders[symbol].addresses[address] !== null
+            && snapshot.tokenHolders[symbol].addresses[address] !== undefined))
+        if (parseInt(balance) !== 0) {
+            if (!exists) { count++ }
+            if (!exists || (!snapshot.tokenHolders[symbol].addresses[address] === balanceAdjusted)) {
+                await tokenRef.update({
+                    [address]: balanceAdjusted,
+                });
+                await addressRef.child(address + "/tokens").update({
+                    [symbol]: balanceAdjusted,
+                });
+                await updateAccount(address)
+            }
+        } else {
+            if (exists) {
+                await tokenRef.child(`${address}`).remove();
+                await addressRef.child(`${address}/tokens/${symbol}`).remove();
+                await updateAccount(address)
+                console.log("Removed " + address + " " + symbol)
+                count--;
+            }
+        }
+    }
+
     async function readEventsRange(start, end) {
         runningJobs += 1
         console.log("Event " + start + " to " + end + " for " + symbol)
@@ -61,60 +89,12 @@ async function getBorrowers(address, startBlock, count, snapshot) {
                             if (e.returnValues.from !== '0x0000000000000000000000000000000000000000' &&
                                 !addressesSearched.includes(e.returnValues.from)) {
                                 addressesSearched.push(e.returnValues.from);
-                                const balance = await contract.methods.balanceOf(e.returnValues.from).call();
-                                const balanceAdjusted = parseInt(balance) / 10 ** dec;
-                                const exists = (!!(snapshot && snapshot.tokenHolders && snapshot.tokenHolders[symbol]
-                                    && snapshot.tokenHolders[symbol].addresses && snapshot.tokenHolders[symbol].addresses[e.returnValues.from] !== null
-                                    && snapshot.tokenHolders[symbol].addresses[e.returnValues.from] !== undefined))
-                                if (parseInt(balance) !== 0) {
-                                    if (!exists) { count++ }
-                                    if (!exists || (!snapshot.tokenHolders[symbol].addresses[e.returnValues.from] === balanceAdjusted)) {
-                                        await tokenRef.update({
-                                            [e.returnValues.from]: balanceAdjusted,
-                                        });
-                                        await addressRef.child(e.returnValues.from + "/tokens").update({
-                                            [symbol]: balanceAdjusted,
-                                        });
-                                        await updateAccount(e.returnValues.from)
-                                    }
-                                } else {
-                                    if (exists) {
-                                        await tokenRef.child(`${e.returnValues.from}`).remove();
-                                        await addressRef.child(`${e.returnValues.from}/tokens/${symbol}`).remove();
-                                        await updateAccount(e.returnValues.from)
-                                        console.log("Removed " + e.returnValues.from + " " + symbol)
-                                        count--;
-                                    }
-                                }
+                                await checkAccount(e.returnValues.from)
                             }
                             if (e.returnValues.to !== '0x0000000000000000000000000000000000000000' &&
                                 !addressesSearched.includes(e.returnValues.to)) {
                                 addressesSearched.push(e.returnValues.to);
-                                const balance = await contract.methods.balanceOf(e.returnValues.to).call();
-                                const balanceAdjusted = parseInt(balance) / 10 ** dec;
-                                const exists = (!!(snapshot && snapshot.tokenHolders && snapshot.tokenHolders[symbol]
-                                    && snapshot.tokenHolders[symbol].addresses && snapshot.tokenHolders[symbol].addresses[e.returnValues.to] !== null
-                                    && snapshot.tokenHolders[symbol].addresses[e.returnValues.to] !== undefined))
-                                if (parseInt(balance) !== 0) {
-                                    if (!exists) { count++ }
-                                    if (!exists || (!snapshot.tokenHolders[symbol].addresses[e.returnValues.from] === balanceAdjusted)) {
-                                        await tokenRef.update({
-                                            [e.returnValues.to]: balanceAdjusted,
-                                        });
-                                        await addressRef.child(e.returnValues.to + "/tokens").update({
-                                            [symbol]: balanceAdjusted,
-                                        });
-                                        await updateAccount(e.returnValues.to)
-                                    }
-                                } else {
-                                    if (exists) {
-                                        await tokenRef.child(`${e.returnValues.to}`).remove();
-                                        await addressRef.child(`${e.returnValues.to}/tokens/${symbol}`).remove();
-                                        await updateAccount(e.returnValues.to)
-                                        console.log("Removed " + e.returnValues.to + " " + symbol)
-                                        count--;
-                                    }
-                                }
+                                await checkAccount(e.returnValues.to)
                             }
                         }),
                 );
