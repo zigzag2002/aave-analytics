@@ -33,6 +33,9 @@ var web3 = new Web3(new Web3.providers.WebsocketProvider(add,
 async function getPoolData(address) {
     var tokenRef = db.ref(`aave/pools/${address}/tokens`);
     const poolContract = new web3.eth.Contract(abi.poolAbi, address);
+    const poolAddressProvider = new web3.eth.Contract(abi.providerAbi, '0xb53c1a33016b2dc2ff3653530bff1848a515c8c5')
+    const priceOracleAddress = await poolAddressProvider.methods.getPriceOracle().call()
+    const priceOracleContract = new web3.eth.Contract(abi.priceOracle, priceOracleAddress)
     const list = await poolContract.methods.getReservesList().call();
     for (let address of list) {
         var assetContract;
@@ -49,24 +52,24 @@ async function getPoolData(address) {
             assetSymbol = await assetContract.methods.symbol().call();
             assetName = await assetContract.methods.name().call();
         }
-
+        const price = (await priceOracleContract.methods.getAssetPrice(address).call()) / (10**18);
         const assetConfiguration = await poolContract.methods.getConfiguration(address).call();
         const num = BigInt(assetConfiguration[0])
         const binary = num.toString(2)
         const strlen = binary.length
-        const loanToValue = parseInt(binary.substring(strlen - 16, strlen), 2)/100
-        const liquidationThreshold = parseInt(binary.substring(strlen - 32, strlen - 16), 2)/100
-        const liquidationBonus = parseInt(binary.substring(strlen - 48, strlen - 32), 2)/100
+        const loanToValue = parseInt(binary.substring(strlen - 16, strlen), 2) / 100
+        const liquidationThreshold = parseInt(binary.substring(strlen - 32, strlen - 16), 2) / 100
+        const liquidationBonus = parseInt(binary.substring(strlen - 48, strlen - 32), 2) / 100
         const decimals = parseInt(binary.substring(strlen - 56, strlen - 48), 2)
-        const reserveIsActive = (parseInt(binary[strlen-57]) === 1)
-        const reserveIsFrozen = (parseInt(binary[strlen-58]) === 1)
-        const borrowingIsEnabled = (parseInt(binary[strlen-59]) === 1)
-        const stableRateBorrowingEnabled = (parseInt(binary[strlen-60]) === 1)
-        var reserved = parseInt(binary.substring(strlen-64, strlen-60), 2)
-        var reserveFactor = parseInt(binary.substring(0, strlen - 64), 2)/100
+        const reserveIsActive = (parseInt(binary[strlen - 57]) === 1)
+        const reserveIsFrozen = (parseInt(binary[strlen - 58]) === 1)
+        const borrowingIsEnabled = (parseInt(binary[strlen - 59]) === 1)
+        const stableRateBorrowingEnabled = (parseInt(binary[strlen - 60]) === 1)
+        var reserved = parseInt(binary.substring(strlen - 64, strlen - 60), 2)
+        var reserveFactor = parseInt(binary.substring(0, strlen - 64), 2) / 100
 
-        if (isNaN(reserved)) {reserved = 0}
-        if (isNaN(reserveFactor)) {reserveFactor = 0}
+        if (isNaN(reserved)) { reserved = 0 }
+        if (isNaN(reserveFactor)) { reserveFactor = 0 }
 
         const assetData = await poolContract.methods.getReserveData(address).call();
         const aTokenContract = new web3.eth.Contract(abi.erc20, assetData.aTokenAddress);
@@ -92,9 +95,11 @@ async function getPoolData(address) {
         var variableDebtAdjusted = variableDebt / (10 ** decimals)
         var aTokenSupplyAdjusted = aTokenSupply / (10 ** decimals)
         await tokenRef.update({
-            [assetSymbol.replace(/[^A-Z0-9]+/ig, "")]: {
+            [assetSymbol.replace(/[^A-Z0-9]+/ig, "").toUpperCase()]: {
+                address: address,
                 symbol: assetSymbol,
                 name: assetName,
+                price: price,
                 supply: aTokenSupplyAdjusted,
                 variableDebt: variableDebtAdjusted,
                 stableDebt: stableDebtAdjusted,
@@ -110,7 +115,7 @@ async function getPoolData(address) {
                 variableTokenSymbol: variableTokenSymbol,
                 loanToValue: loanToValue,
                 liquidationThreshold: liquidationThreshold,
-                liquidationBonus:liquidationBonus,
+                liquidationBonus: liquidationBonus,
                 decimals: decimals,
                 reserveIsActive: reserveIsActive,
                 reserveIsFrozen: reserveIsFrozen,

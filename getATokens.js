@@ -18,7 +18,7 @@ const web3 = new Web3(new Web3.providers.WebsocketProvider(add,
         }
     }));
 
-async function getBorrowers(address, startBlock, count, snapshot) {
+async function getBorrowers(address, startBlock, snapshot) {
     const poolContract = new web3.eth.Contract(abi.poolAbi, '0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9');
     const currentBlock = await web3.eth.getBlockNumber();
     const contract = new web3.eth.Contract(abi.erc20, address)
@@ -27,7 +27,7 @@ async function getBorrowers(address, startBlock, count, snapshot) {
     const addressesSearched = []
     const addressRef = db.ref(`aave/pools/0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9/addresses`);
     const symbolRef = db.ref(`aave/pools/0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9/tokenHolders/${symbol}`);
-    const tokenRef = db.ref(`aave/pools/0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9/tokenHolders/${symbol}/addresses`);
+    //const tokenRef = db.ref(`aave/pools/0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9/tokenHolders/${symbol}/addresses`);
     var runningJobs = 0;
     const getPastEvents = promisify(contract.getPastEvents.bind(contract));
 
@@ -37,7 +37,7 @@ async function getBorrowers(address, startBlock, count, snapshot) {
             totalCollateralETH: parseInt(accountData.totalCollateralETH) / (10 ** 18),
             totalDebtETH: parseInt(accountData.totalDebtETH) / (10 ** 18),
             availableBorrowsETH: parseInt(accountData.availableBorrowsETH) / (10 ** 18),
-            currentLiquidationThaccountDatahold: parseInt(accountData.currentLiquidationThreshold) / 100,
+            currentLiquidationThreshold: parseInt(accountData.currentLiquidationThreshold) / 100,
             ltv: parseInt(accountData.ltv) / 100,
             healthFactor: parseInt(accountData.healthFactor)
         })
@@ -46,27 +46,21 @@ async function getBorrowers(address, startBlock, count, snapshot) {
     async function checkAccount(address) {
         const balance = await contract.methods.balanceOf(address).call();
         const balanceAdjusted = parseInt(balance) / 10 ** dec;
-        const exists = (!!(snapshot && snapshot.tokenHolders && snapshot.tokenHolders[symbol]
-            && snapshot.tokenHolders[symbol].addresses && snapshot.tokenHolders[symbol].addresses[address] !== null
-            && snapshot.tokenHolders[symbol].addresses[address] !== undefined))
+        const exists = (!!(snapshot && snapshot.addresses && snapshot.addresses[address] !== null
+            && snapshot.addresses[address] !== undefined))
         if (parseInt(balance) !== 0) {
-            if (!exists) { count++ }
-            if (!exists || (!snapshot.tokenHolders[symbol].addresses[address] === balanceAdjusted)) {
-                await tokenRef.update({
-                    [address]: balanceAdjusted,
-                });
-                await addressRef.child(address + "/tokens").update({
-                    [symbol]: balanceAdjusted,
-                });
-                await updateAccount(address)
-            }
+            await addressRef.child(address + "/tokens").update({
+                [symbol]: balanceAdjusted,
+            });
+            await updateAccount(address)
+            console.log("Updated " + address + " for " + symbol)
+
         } else {
             if (exists) {
-                await tokenRef.child(`${address}`).remove();
+                //await tokenRef.child(`${address}`).remove();
                 await addressRef.child(`${address}/tokens/${symbol}`).remove();
                 await updateAccount(address)
                 console.log("Removed " + address + " " + symbol)
-                count--;
             }
         }
     }
@@ -100,11 +94,9 @@ async function getBorrowers(address, startBlock, count, snapshot) {
                 );
                 runningJobs -= 1;
                 if (runningJobs === 0) {
-                    console.log("DONE " + symbol)
                     await symbolRef.update({
                         time: (new Date()).toUTCString(),
                         lastBlock: currentBlock,
-                        count: count
                     });
                     console.log("Finished " + symbol)
                 }
@@ -114,7 +106,6 @@ async function getBorrowers(address, startBlock, count, snapshot) {
                     await symbolRef.update({
                         time: (new Date()).toUTCString(),
                         lastBlock: currentBlock,
-                        count: count
                     });
                     console.log("Finished " + symbol)
                 }
@@ -132,7 +123,6 @@ async function getBorrowers(address, startBlock, count, snapshot) {
             else {
                 await symbolRef.update({
                     time: (new Date()).toUTCString(),
-                    count: count
                 });
                 console.log("Error - updating count")
                 return;
@@ -151,9 +141,7 @@ exports.helloPubSub = (event, context) => {
                 const tokenExists = snapshot.val() && snapshot.val().tokenHolders && snapshot.val().tokenHolders[obj.aTokenSymbol]
                 const start = tokenExists && snapshot.val().tokenHolders[obj.aTokenSymbol].lastBlock
                     ? snapshot.val().tokenHolders[obj.aTokenSymbol].lastBlock : 0
-                const count = tokenExists && snapshot.val().tokenHolders[obj.aTokenSymbol].count
-                    ? snapshot.val().tokenHolders[obj.aTokenSymbol].count : 0
-                promises.push(getBorrowers(obj.aTokenAddress, start, count, snapshot.val()))
+                promises.push(getBorrowers(obj.aTokenAddress, start, snapshot.val()))
             }
             Promise.all(promises).then(() => {
                 console.log("DONE")
@@ -163,5 +151,4 @@ exports.helloPubSub = (event, context) => {
             console.log('The read failed: ' + errorObject.name);
         });
     })
-
 };
